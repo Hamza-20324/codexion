@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   grant_wait.c                                       :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: yourlogin <yourlogin@student.42.fr>        +#+  +:+       +#+        */
+/*   By: zhamza <zhamza@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/10/30 00:00:00 by yourlogin         #+#    #+#             */
-/*   Updated: 2026/10/30 00:00:00 by yourlogin        ###   ########.fr       */
+/*   Created: 2026/11/06 02:37:04 by zhamza            #+#    #+#             */
+/*   Updated: 2026/11/06 02:37:13 by zhamza           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -24,9 +24,7 @@ static long long	cooldown_end_locked(t_coder *coder)
 	a = &sim->dongles[coder->left];
 	b = &sim->dongles[coder->right];
 	end = 0;
-	if (heap_top(&a->queue) == coder->id - 1
-		&& heap_top(&b->queue) == coder->id - 1
-		&& a->owner == -1 && b->owner == -1)
+	if (a->owner == -1 && b->owner == -1)
 	{
 		end = a->ready_at;
 		if (b->ready_at > end)
@@ -42,6 +40,9 @@ long long	next_cooldown_locked(t_coder *coder)
 	long long	remaining;
 
 	end = cooldown_end_locked(coder);
+	if (coder->sim->cfg.policy == EDF && coder->sim->cfg.count % 2 != 0
+		&& coder->compiles == 0 && edf_slot(coder) > end)
+		end = edf_slot(coder);
 	remaining = end - now_ms();
 	if (remaining > 0)
 		return (remaining);

@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   monitor.c                                          :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: yourlogin <yourlogin@student.42.fr>        +#+  +:+       +#+        */
+/*   By: zhamza <zhamza@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/10/30 00:00:00 by yourlogin         #+#    #+#             */
-/*   Updated: 2026/10/30 00:00:00 by yourlogin        ###   ########.fr       */
+/*   Created: 2026/11/06 02:38:21 by zhamza            #+#    #+#             */
+/*   Updated: 2026/11/06 02:38:24 by zhamza           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -24,8 +24,7 @@ static int	earliest_burnout(t_sim *sim, long long *deadline)
 	while (i < sim->cfg.count)
 	{
 		candidate = sim->coders[i].last_start + sim->cfg.burnout;
-		if (sim->coders[i].compiles < sim->cfg.required
-			&& candidate < *deadline)
+		if (candidate < *deadline)
 		{
 			*deadline = candidate;
 			id = i;
@@ -35,24 +34,30 @@ static int	earliest_burnout(t_sim *sim, long long *deadline)
 	return (id);
 }
 
+int	check_burnout_locked(t_sim *sim)
+{
+	long long	deadline;
+	int			id;
+
+	if (sim->stop)
+		return (1);
+	id = earliest_burnout(sim, &deadline);
+	if (now_ms() < deadline)
+		return (0);
+	sim->stop = 1;
+	log_locked(sim, id + 1, "burned out");
+	pthread_cond_broadcast(&sim->changed);
+	return (1);
+}
+
 static void	monitor_loop_locked(t_sim *sim)
 {
 	long long	deadline;
-	long long	wait_ms;
-	int			id;
 
-	while (!sim->stop)
+	while (!check_burnout_locked(sim))
 	{
-		id = earliest_burnout(sim, &deadline);
-		wait_ms = deadline - now_ms();
-		if (wait_ms <= 0)
-		{
-			sim->stop = 1;
-			log_locked(sim, id + 1, "burned out");
-			pthread_cond_broadcast(&sim->changed);
-			break ;
-		}
-		wait_delta_locked(sim, wait_ms);
+		earliest_burnout(sim, &deadline);
+		wait_delta_locked(sim, deadline - now_ms());
 	}
 }
 

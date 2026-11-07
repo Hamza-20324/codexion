@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   grant.c                                            :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: yourlogin <yourlogin@student.42.fr>        +#+  +:+       +#+        */
+/*   By: zhamza <zhamza@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/10/30 00:00:00 by yourlogin         #+#    #+#             */
-/*   Updated: 2026/10/30 00:00:00 by yourlogin        ###   ########.fr       */
+/*   Created: 2026/11/06 02:37:26 by zhamza            #+#    #+#             */
+/*   Updated: 2026/11/06 02:37:54 by zhamza           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -17,15 +17,21 @@ static int	can_grant_locked(t_coder *coder, long long now)
 	t_sim		*sim;
 	t_dongle	*a;
 	t_dongle	*b;
-	int			id;
+	int			available;
 
 	sim = coder->sim;
+	if (sim->cfg.policy == EDF && sim->cfg.count % 2 != 0
+		&& coder->compiles == 0 && now < edf_slot(coder))
+		return (0);
+	lock_pair(sim, coder->left, coder->right);
 	a = &sim->dongles[coder->left];
 	b = &sim->dongles[coder->right];
-	id = coder->id - 1;
-	return (heap_top(&a->queue) == id && heap_top(&b->queue) == id
-		&& a->owner == -1 && b->owner == -1
-		&& now >= a->ready_at && now >= b->ready_at);
+	available = (a->owner == -1 && b->owner == -1
+			&& now >= a->ready_at && now >= b->ready_at
+			&& heap_top(&a->queue) == coder->id - 1
+			&& heap_top(&b->queue) == coder->id - 1);
+	unlock_pair(sim, coder->left, coder->right);
+	return (available);
 }
 
 static void	commit_grant_locked(t_coder *coder, long long start)
@@ -46,10 +52,13 @@ int	try_grant_locked(t_coder *coder)
 	long long	start;
 
 	sim = coder->sim;
-	lock_pair(sim, coder->left, coder->right);
 	start = now_ms();
 	if (start >= coder->last_start + sim->cfg.burnout
 		|| !can_grant_locked(coder, start))
+		return (0);
+	lock_pair(sim, coder->left, coder->right);
+	start = now_ms();
+	if (start >= coder->last_start + sim->cfg.burnout)
 	{
 		unlock_pair(sim, coder->left, coder->right);
 		return (0);

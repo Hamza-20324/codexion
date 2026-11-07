@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   codexion.h                                         :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: yourlogin <yourlogin@student.42.fr>        +#+  +:+       +#+        */
+/*   By: zhamza <zhamza@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/10/30 00:00:00 by yourlogin         #+#    #+#             */
-/*   Updated: 2026/10/30 00:00:00 by yourlogin        ###   ########.fr       */
+/*   Created: 2026/11/06 02:36:38 by zhamza            #+#    #+#             */
+/*   Updated: 2026/11/07 00:11:39 by zhamza           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,6 +16,10 @@
 # include <pthread.h>
 # include <time.h>
 # include <stddef.h>
+# include <stdlib.h>
+# include <string.h>
+# include <unistd.h>
+# include <limits.h>
 
 typedef enum e_policy
 {
@@ -25,13 +29,13 @@ typedef enum e_policy
 
 typedef struct s_config
 {
-	int		count;
-	int		burnout;
-	int		compile;
-	int		debug;
-	int		refactor;
-	int		required;
-	int		cooldown;
+	int			count;
+	int			burnout;
+	int			compile;
+	int			debug;
+	int			refactor;
+	int			required;
+	int			cooldown;
 	t_policy	policy;
 }	t_config;
 
@@ -50,7 +54,7 @@ typedef struct s_dongle
 	t_heap			queue;
 }	t_dongle;
 
-struct s_sim;
+struct	s_sim;
 
 typedef struct s_coder
 {
@@ -77,6 +81,7 @@ typedef struct s_sim
 	long long		start;
 	long long		cycle;
 	long long		seq;
+	int				fifo_queued;
 	int				ready;
 	int				stop;
 	int				mutex_ready;
@@ -110,6 +115,8 @@ int			heap_pop(t_sim *sim, t_heap *heap);
 void		lock_pair(t_sim *sim, int left, int right);
 void		unlock_pair(t_sim *sim, int left, int right);
 int			request_dongles(t_coder *coder);
+void		queue_request_locked(t_coder *coder);
+void		queue_first_fifo_locked(t_coder *coder);
 long long	edf_slot(t_coder *coder);
 void		init_schedule(t_sim *sim);
 int			try_grant_locked(t_coder *coder);
@@ -120,5 +127,6 @@ void		release_dongles_locked(t_coder *coder);
 int			begin_refactor(t_coder *coder);
 void		*coder_thread(void *arg);
 void		*monitor_thread(void *arg);
+int			check_burnout_locked(t_sim *sim);
 
 #endif

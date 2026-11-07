@@ -2,61 +2,81 @@
 
 # Codexion
 
-A C / POSIX-threads resource-arbitration simulation inspired by the dining
-philosophers problem. It models coders sharing USB dongles in a circular hub,
-where every compilation needs **both** adjacent dongles, every release incurs a
-**cooldown**, and competing requests are ordered using **FIFO or EDF**.
-
+Codexion is a multithreaded simulation written in C using POSIX threads. It is inspired by the dining philosophers problem: coders compete for shared USB dongles, must obtain two adjacent dongles to compile, and can use each dongle again only after its cooldown expires. Requests are prioritized using FIFO or EDF scheduling.
 
 ## Description
 
-There are `N` coders and `N` shared dongles. Each coder loops through:
+The simulation contains `N` coders and `N` dongles arranged in a ring. Coder `i` (zero-based) needs dongles `i` and `(i + 1) % N`. Two neighboring coders therefore compete for one shared dongle.
 
-1. Acquire their two neighboring dongles **atomically**.
-2. Compile while both dongles are held.
-3. Release both, initiating each dongle's cooldown.
-4. Debug and refactor without holding dongles, then request them again.
+A coder follows these phases:
 
-Every coder has a deadline: `last_compile_start + time_to_burnout`. At the
-start of the simulation, `last_compile_start` is the common simulation start.
-A monitor thread stops the simulation at the earliest missed deadline. It also
-stops once every coder has **completed** the required number of compilations.
+1. Request the two adjacent dongles and wait until both can be acquired together.
+2. Compile for `time_to_compile` milliseconds while holding both dongles.
+3. Release both dongles and start their cooldown periods.
+4. Debug for `time_to_debug` milliseconds.
+5. Refactor for `time_to_refactor` milliseconds.
+6. Repeat until the required compilation count has been reached or the simulation stops.
+
+Each coder must start another compilation before `last_compile_start + time_to_burnout`, unless the coder has already completed the required number of compilations. The monitor detects missed deadlines. A successful simulation ends after every coder has completed the required number of compilations.
 
 ## Instructions
 
-Requires a C compiler with POSIX threads, `make`, and (for the optional test
-suite) Python 3. No external C libraries or libft are required.
+### Requirements
+
+- A C compiler supporting C and POSIX threads
+- `make`
+- A Unix-like operating system with `pthread` support
+
+No external C library or `libft` is required.
+
+### Build
 
 ```sh
 make
-./codexion 5 800 200 200 100 3 50 edf
-./codexion 5 800 200 200 100 3 50 fifo
-make test
-make clean
-make fclean
-make re
 ```
 
-All eight positional arguments are mandatory:
+The Makefile compiles the sources with `-Wall -Wextra -Werror -pthread` and creates `./codexion`.
 
-| Position | Name | Meaning |
+Available Makefile targets:
+
+```sh
+make          # Build
+make clean    # Remove object files
+make fclean   # Remove objects and executable
+make re       # Rebuild everything
+```
+
+### Run
+
+```sh
+./codexion number_of_coders time_to_burnout time_to_compile time_to_debug time_to_refactor number_of_compiles_required dongle_cooldown scheduler
+```
+
+All eight arguments are mandatory and must appear in this order:
+
+| Position | Argument | Meaning |
 | --- | --- | --- |
-| 1 | `number_of_coders` | Positive integer; also number of dongles |
-| 2 | `time_to_burnout` | Milliseconds from start of last compilation to next start deadline |
-| 3 | `time_to_compile` | Milliseconds holding both dongles |
-| 4 | `time_to_debug` | Milliseconds debugging |
-| 5 | `time_to_refactor` | Milliseconds refactoring |
-| 6 | `number_of_compiles_required` | Stop after all have completed at least this many |
-| 7 | `dongle_cooldown` | Minimum milliseconds from release to reacquisition |
-| 8 | `scheduler` | Exactly `fifo` or `edf` |
+| 1 | `number_of_coders` | Number of coders and shared dongles (positive integer) |
+| 2 | `time_to_burnout` | Maximum time in ms between the starts of consecutive compilations |
+| 3 | `time_to_compile` | Duration of compilation in ms |
+| 4 | `time_to_debug` | Duration of debugging in ms |
+| 5 | `time_to_refactor` | Duration of refactoring in ms |
+| 6 | `number_of_compiles_required` | Number of compilations each coder must complete |
+| 7 | `dongle_cooldown` | Minimum ms after release before a dongle can be used again |
+| 8 | `scheduler` | `fifo` or `edf` |
 
-Invalid numbers, negatives, overflow, wrong argument count, invalid scheduler,
-and zero coders are rejected. Zero durations and zero required compilations are
-accepted. With zero required compilations, the program exits immediately.
+For example:
 
-### Logs
+```sh
+./codexion 5 2000 200 200 200 10 0 fifo
+./codexion 5 2000 200 200 200 7 0 edf
+```
 
-The program emits only these event forms to stdout:
+The parser rejects missing or extra arguments, invalid scheduler names, negative/non-numeric values, numeric overflow, and zero coders. Nonnegative durations and a zero compilation target are accepted by the implementation. A zero target exits immediately.
+
+### Output
+
+The program writes timestamped events to standard output:
 
 ```text
 0 1 has taken a dongle
@@ -66,195 +86,139 @@ The program emits only these event forms to stdout:
 400 1 is refactoring
 ```
 
-A single coder has only one dongle; it takes that dongle once and cannot start
-compiling. A separate monitor eventually prints `<timestamp> 1 burned out`.
+The exact timestamps depend on OS scheduling. When a coder misses a compilation deadline, the monitor prints a final `burned out` event and stops the simulation. With only one coder there is only one dongle; that coder cannot acquire two and eventually burns out.
 
 ## Architecture
 
-| File | Responsibility |
+| Source file | Responsibility |
 | --- | --- |
-| `src/main.c` | CLI and lifecycle |
-| `src/parsing.c` | Strict nonnegative, overflow-safe argument parsing |
-| `src/init.c`, `src/cleanup.c` | Structures, mutexes, queues, allocation and cleanup |
-| `src/threads.c` | Worker/monitor startup barrier, joins and creation failures |
-| `src/worker.c`, `src/worker_phases.c` | Compilation, debugging, refactoring |
-| `src/acquire.c` | Request creation and waiting |
-| `src/grant.c`, `src/grant_wait.c` | Pair arbitration and cooldown wake-ups |
-| `src/dongle.c` | Per-dongle mutex discipline, pair locking and release |
-| `src/heap.c`, `src/heap_pop.c` | Custom binary min-heap priority queues |
-| `src/monitor.c` | Precise earliest-deadline burnout detection; completed coders excluded |
-| `src/edf_schedule.c` | Coordinated EDF admission slots for conflict-free repeating cycles |
-| `src/timing.c` | Monotonic elapsed time; condition-variable timed waits |
-| `src/logging.c` | Serialized, direct `write(1, ...)` output to stdout |
+| `src/main.c` | CLI and simulation lifecycle |
+| `src/parsing.c` | Parsing and validating arguments |
+| `src/init.c`, `src/cleanup.c` | Allocating and releasing resources |
+| `src/threads.c` | Creating, starting and joining coder/monitor threads |
+| `src/worker.c`, `src/worker_phases.c` | Compile, debug and refactor phases |
+| `src/acquire.c` | Enqueuing dongle requests and waiting for grants |
+| `src/grant.c`, `src/grant_wait.c` | Checking resource eligibility, arbitration and cooldown waits |
+| `src/dongle.c` | Ordered dongle locking and release |
+| `src/heap.c`, `src/heap_pop.c` | Per-dongle binary heaps and priority comparisons |
+| `src/edf_schedule.c` | Computing EDF phase-slot values for tie-breaking |
+| `src/timing.c` | Monotonic time and condition-variable waiting |
+| `src/logging.c` | Serialized timestamped output |
+| `src/monitor.c` | Deadline monitoring and burnout detection |
+| `src/codexion.h` | Shared structures and function declarations |
 
-### Dongle mapping
+### Queues, heaps and scheduling
 
-Coder `i` (zero-based) needs dongles `i` and `(i + 1) % N`, ensuring that
-neighboring coders share exactly one dongle. For `N == 2`, both coders share
-both dongles. For `N == 1`, there is only one dongle and no compilation.
+Every dongle has a waiting queue implemented as a binary heap. When a coder requests a pair of dongles, its request is inserted into both relevant queues. The coder does not hold just one dongle while waiting for the other.
 
-### FIFO / EDF priority heaps and coordinated reservations
+- **FIFO** compares request sequence numbers: older requests receive higher priority.
+- **EDF** compares absolute burnout deadlines: earlier deadlines receive higher priority. The implementation uses an EDF phase slot, then the request sequence and coder ID, to break ties.
 
-Every dongle has a custom binary min-heap of queued requests. A coder **queues
-its request for both dongles immediately** after it reaches the acquisition
-step; it never physically holds one dongle while waiting for the other.
+The grant logic also checks whether both dongles needed by a competing request are currently available and past cooldown. As implemented, a later **eligible** request may proceed when an earlier competing request cannot currently acquire its entire pair. This is not a single global strict-FIFO queue; the distinction matters when explaining the scheduler during evaluation.
 
-- **FIFO**: the oldest `request_seq` is granted first when the necessary
-  resources are free. Strict FIFO is implemented by the heap comparator.
-- **EDF**: earlier absolute `request_deadline` comes first. A deterministic
-  tie-break uses a phase-slot timestamp, then request sequence and coder ID.
-
-A naive approach that simply required a coder to be heap head on both dongles
-could squander capacity and cause burnout even for feasible EDF configurations.
-To avoid this, EDF uses **coordinated admission windows** while keeping the
-requests present in the heaps. The window does not acquire or reserve a dongle;
-actual acquisition is still a two-dongle transaction that verifies ownership,
-cooldown and priority under locks.
-
-For `N >= 2`, let `k = floor(N / 2)`, `Q = compile + cooldown`, and
-`S = compile + debug + refactor`. The coordinator builds a repeating cycle
-with conservative millisecond rounding/guard time:
-
-```text
-cycle = max(S + 4, ceil((Q + 4) * N / k))
-phase(coder i, 0-based) = floor(cycle * ((i * k) mod N) / N)
-allowed_start(i, round) = simulation_start + phase(i) + round * cycle
-```
-
-The order places non-neighboring coders at compatible points in the cycle.
-Adjacent coders' reserved starts remain separated by at least their resource
-hold plus cooldown. For even rings this naturally becomes alternating parity
-sets; for odd rings the phases rotate around the ring. An already-queued
-request can acquire both dongles only after its admission window opens and
-its two priority heaps allow it.
-
-This avoids the demonstrated EDF starvation of the initial implementation in
-feasible 5-coder / 800ms cooldown and 200-coder / 400ms cooldown workloads.
-It is a **non-preemptive EDF policy with a deterministic admission schedule**,
-not an arbitrary-job real-time scheduling theorem: high OS contention and
-parameters with no feasible deadline slack still need careful testing.
+The `edf_slot()` function calculates a deterministic schedule-related value used by the EDF comparator. In the current source it is **not** a separate admission gate that delays compilation until a reserved time window.
 
 ## Blocking cases handled
 
-### Deadlock and Coffman's conditions
+### Deadlock avoidance
 
-The classic four Coffman conditions are mutual exclusion, hold-and-wait,
-no preemption, and circular wait. Mutual exclusion is necessary for these
-resources, but **hold-and-wait is prevented**: both dongles are reserved
-atomically under the simulation mutex, or neither is reserved. There is no
-partial dongle ownership while waiting. Per-dongle heap priorities are
-strictly ordered, preventing queue-order cycles; mutex acquisitions are
-ordered by dongle index.
+A coder never waits while holding only one dongle. The two dongles are checked and granted together while the simulation state is synchronized. When two dongle mutexes must be locked, the smaller index is locked first. This avoids partial resource ownership and inconsistent lock ordering.
 
-### Starvation prevention
+### Shared resource protection
 
-FIFO ranks requests in strict arrival order. EDF ranks requests by earliest
-burnout deadline with a deterministic admission-phase tie-break. Two-dongle
-atomic granting and EDF admission windows avoid fragmented grants that can
-otherwise starve coders even when a coordinated solution is feasible.
-After a coder has completed its required compilation count, it finishes the
-current debug/refactor transition and stops requesting dongles. The monitor
-no longer treats that coder as needing another compilation.
+Ownership and cooldown timestamps are checked before a grant. Shared simulation state and per-dongle data are protected by the corresponding mutexes. Two neighboring coders cannot legitimately compile with the same dongle at once.
 
-### Cooldown handling
+### Waiting without busy loops
 
-Each dongle stores `ready_at`, assigned at release as
-`monotonic_now + cooldown`. Free ownership is not sufficient to grant it;
-the current monotonic time must also have reached `ready_at`.
-A waiting coder sleeps on a condition variable with a timed wait until the
-latest of its two candidate dongle cooldowns expires. Ordinary releases,
-new requests, compilation starts, and simulation stop all notify waiters.
+Waiting threads use condition variables. A timed wait is used when the next relevant event is a dongle's cooldown expiration. A broadcast wakes waiters after state changes or when the simulation stops.
 
-### Precise burnout detection
+### Cooldown
 
-An independent monitor thread scans the coders' absolute deadlines while
-holding the simulation mutex. It performs a `pthread_cond_timedwait` for the
-nearest deadline, waking early when any compilation changes a deadline. When
-a deadline is missed it sets the shared stop flag, logs the burnout event,
-and broadcasts to all sleepers. The program uses `CLOCK_MONOTONIC` for elapsed
-time and converts relative waits into `CLOCK_REALTIME` deadlines because
-normal `pthread_cond_t` objects use the real-time condition clock by default.
-No busy-waiting is needed. Logged timestamps have millisecond resolution;
-OS scheduling may introduce small delays.
+On release, each dongle receives a `ready_at` timestamp equal to the current monotonic time plus `dongle_cooldown`. A dongle may be unowned but still unavailable until that timestamp is reached.
 
-### Log serialization
+### Burnout and completion
 
-A dedicated logging mutex guards each complete line. Messages are assembled
-in a small stack buffer and written with `write(1, ...)`, avoiding stdio
-buffering delays. Event logging is called while the simulation mutex is held,
-so the stop state cannot change mid-message. No messages are printed after
-an observed burnout.
+Each compilation start updates the coder's next deadline. The monitor checks active coders and logs the earliest missed deadline. Coders that already reached their required compilation count are excluded from further burnout checks. Completion and burnout both trigger an orderly stop and thread join before cleanup.
+
+### Scheduling limitations
+
+FIFO ordering does not by itself guarantee that every coder avoids starvation or completes within its deadline under every contention pattern. EDF prioritizes earlier deadlines but does not guarantee survival for infeasible workloads. Repeated stress testing is important, especially with odd coder counts and cooldown.
 
 ## Thread synchronization mechanisms
 
-**Locking order:** `sim.mutex` is always acquired before any dongle mutex;
-for two distinct dongles, the lower index is locked first. A print mutex
-may be taken while holding `sim.mutex`, never the other way round. This
-fixed order avoids lock-inversion deadlocks.
+- `sim->mutex` protects shared simulation state: stop/start flags, request sequence values, coder progress and arbitration decisions.
+- `dongles[i].mutex` protects each dongle's owner, cooldown timestamp and request heap.
+- `sim->print_mutex` serializes complete log messages.
+- `sim->changed` is a condition variable used by worker threads, the monitor, the startup barrier and shutdown notifications.
+- `pthread_join()` ensures worker and monitor threads have exited before their shared resources are freed.
 
-- `sim.mutex`: protects the shared stop/start flags, coder compilation
-  counters, deadlines, request sequence and arbitration transactions.
-- `dongle[i].mutex`: protects that dongle's owner, ready-at timestamp, and
-  request heap. All access to these fields happens with this mutex held.
-- `print_mutex`: prevents messages being interleaved during output.
-- `changed` condition: prevents CPU-intensive polling; it coordinates
-  request waiters, the monitor, sleeps, the start barrier, and shutdown.
+The normal lock order is: **simulation mutex first, then dongle mutexes in ascending index order**. Logging can take the print mutex while holding the simulation mutex; the reverse lock order must be avoided.
 
-For example, two adjacent coders can simultaneously attempt to request the
-same dongle. Their requests are serialized by `sim.mutex`, recorded in
-per-dongle heaps, and granted only by a transaction holding the dongles'
-mutexes, so the physical resource cannot be duplicated or stolen. The
-monitor accesses `last_start` under the same simulation mutex, so it cannot
-observe a torn update while a worker starts a compilation.
+Elapsed times come from `CLOCK_MONOTONIC`. The condition variables use their default clock, so timed waits construct absolute deadlines using `CLOCK_REALTIME`.
 
 ## Testing
 
-Run `make test` for the 34 fast behavioral checks. Run `make test-scale`
-for the longer benchmarks based on the correction sheet (including the
-400/800ms cooldown scenarios and the 200-coder EDF stress case). The suite
-checks input errors, single-coder burnout, zero durations, serialized logs,
-two-dongle logging, adjacent-coder exclusion, cooldown inferred from logs,
-state transitions, completion targets, and sampled timing bounds. The long
-suite can take roughly a minute on ordinary hardware.
+The 42 correction sheet includes the following benchmark commands:
 
-Use additional stress tests, the campus `norminette` checker, and memory
-checkers on the target machine before submission. The tests are not a
-formal proof of fairness, precise 10-ms burnout logging on every machine,
-or conformance to the Norm.
+```sh
+# One coder: expected burnout at approximately 800 ms
+./codexion 1 800 200 200 200 10 0 fifo
+
+# Feasible FIFO and EDF workloads: all coders should complete
+./codexion 5 2000 200 200 200 10 0 fifo
+./codexion 5 2000 200 200 200 7 0 edf
+
+# Expected burnout: final log line near 500 ms
+./codexion 5 500 200 200 200 10 0 fifo
+
+# Cooldown validation: should complete without burnout
+./codexion 5 3000 200 200 200 10 400 fifo
+
+# Compare FIFO versus EDF grant ordering under heavy contention
+./codexion 5 3000 200 200 200 10 800 fifo
+./codexion 5 3000 200 200 200 10 800 edf
+```
+
+In the `800` ms cooldown comparison, the correction sheet asks for differences in grant ordering; it does not explicitly require both policies to complete without burnout. Verify each grant's eligibility, FIFO/EDF priority, two-dongle ownership, cooldown, phase durations and serialized logs.
+
+**Run benchmarks repeatedly.** A single successful run does not exclude timing-dependent failures. In a previous review of this source, the `400` ms FIFO case was reported to fail intermittently; recheck and address any such failure before submission.
+
+### Memory and concurrency checks (optional tools)
+
+```sh
+# Memory errors and leaks
+valgrind --leak-check=full --show-leak-kinds=all \
+  ./codexion 5 10000 200 200 200 2 0 fifo
+
+# Data races and synchronization errors
+valgrind --tool=helgrind ./codexion 5 10000 200 200 200 2 0 fifo
+valgrind --tool=drd ./codexion 5 10000 200 200 200 2 0 fifo
+
+# Check 42 code style if Norminette is installed
+norminette src
+```
+
+The Makefile provided with this source contains `all`, `clean`, `fclean` and `re`. It **does not** provide `make test` or `make test-scale` targets. Use the benchmark commands above unless you add a test runner.
 
 ## Resources
 
-- Project subject: **Codexion v1.5**, Chapters IV–VIII.
-- POSIX threads: `pthread_create(3)`, `pthread_mutex_lock(3)`,
-  `pthread_cond_wait(3)`, `pthread_cond_timedwait(3)` manual pages.
-- Time functions: `clock_gettime(2)` and `clock_gettime(3)` manual pages.
-- Operating Systems: Three Easy Pieces, chapters on locks and condition
-  variables (Remzi H. Arpaci-Dusseau and Andrea C. Arpaci-Dusseau).
-- Cormen et al., *Introduction to Algorithms*, binary heaps and priority
-  queues.
-- Coffman et al. (1971), conditions for resource deadlocks.
+- Official 42 **Codexion v1.5** subject and correction sheet
+- POSIX `pthread_create`, `pthread_join`, `pthread_mutex_*`, `pthread_cond_*` manual pages
+- `clock_gettime(2)` and related POSIX time documentation
+- *Operating Systems: Three Easy Pieces* — locks, concurrency and condition variables
+- *Introduction to Algorithms* — heaps and priority queues
+- Coffman et al. — deadlock conditions
 
-### AI usage disclosure
+### AI usage
 
-AI assistance was used to review the subject, propose the concurrency
-architecture, draft the C implementation, design a custom heap and pair
-arbitration mechanism, assemble the Makefile, write documentation, and
-generate initial automated tests. The generated code and explanations must
-be independently reviewed, tested and understood by the submitting student,
-as required by the subject. AI output is not evidence of correctness.
+AI assistance was used during the project for subject review, suggestions about concurrency and heap-based scheduling .
 
-## Submission / defense notes
+## Submission and defense
 
-Commit source code, headers, `Makefile`, and `README.md` to your assigned
-Git repository. Do not submit only a binary. Verify Norm, run on the campus
-machines, and be ready to explain the locking order, both-dongle grant,
-EDF tie-break, heap operations, cooldown wake-up, monitor clock, and each
-termination path. Recode tasks may be requested during peer evaluation.
+Commit the C sources, header, `Makefile` and `README.md` to the assigned repository. Before the evaluation, compile from a clean checkout, verify Norm, run the correction sheet benchmarks several times and investigate any reported race, deadlock or memory leak.
 
-### FIFO -> LIFO defense practice
+During the defense, be prepared to explain the shared-state lock order, why dongles are granted as a pair, heap comparator behavior, FIFO/EDF priorities, cooldown, condition-variable waiting, burnout monitoring and the cleanup path.
 
-See `DEFENSE_LIFO.md`. The official program intentionally continues accepting
-only `fifo` and `edf`; the LIFO comparator is a **temporary defense recode**,
-not a third accepted command-line scheduler. Revert it before committing.
-# codexion
-# codexion
+### FIFO to LIFO recode practice
+
+The correction sheet may ask you to temporarily make the FIFO scheduler serve the newest waiting request first. In this implementation, the priority comparison is in `heap_before()` in `src/heap.c`. The comparator must be changed in the scheduling logic (not just in the logs), and the changed behavior should be checked under contention. Restore FIFO afterward; the official CLI accepts only `fifo` and `edf`.

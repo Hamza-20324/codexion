@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   edf_schedule.c                                     :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: yourlogin <yourlogin@student.42.fr>        +#+  +:+       +#+        */
+/*   By: zhamza <zhamza@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/11/01 00:00:00 by yourlogin         #+#    #+#             */
-/*   Updated: 2026/11/01 00:00:00 by yourlogin        ###   ########.fr       */
+/*   Created: 2026/11/06 02:36:57 by zhamza            #+#    #+#             */
+/*   Updated: 2026/11/06 02:37:01 by zhamza           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -21,12 +21,14 @@ void	init_schedule(t_sim *sim)
 	half = sim->cfg.count / 2;
 	if (half == 0)
 		return ;
-	resource = (long long)sim->cfg.compile + sim->cfg.cooldown + 4;
+	resource = (long long)sim->cfg.compile + sim->cfg.cooldown;
 	cycle = (resource * sim->cfg.count + half - 1) / half;
 	if (cycle < (long long)sim->cfg.compile + sim->cfg.debug
-		+ sim->cfg.refactor + 4)
+		+ sim->cfg.refactor)
 		cycle = (long long)sim->cfg.compile + sim->cfg.debug
-			+ sim->cfg.refactor + 4;
+			+ sim->cfg.refactor;
+	if (cycle + 4 < sim->cfg.burnout)
+		cycle += 4;
 	sim->cycle = cycle;
 }
 

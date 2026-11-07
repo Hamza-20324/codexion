@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   worker.c                                           :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: yourlogin <yourlogin@student.42.fr>        +#+  +:+       +#+        */
+/*   By: zhamza <zhamza@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/10/30 00:00:00 by yourlogin         #+#    #+#             */
-/*   Updated: 2026/10/30 00:00:00 by yourlogin        ###   ########.fr       */
+/*   Created: 2026/11/06 02:39:06 by zhamza            #+#    #+#             */
+/*   Updated: 2026/11/06 02:39:53 by zhamza           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -46,9 +46,10 @@ static int	end_compile(t_coder *coder)
 	sim = coder->sim;
 	pthread_mutex_lock(&sim->mutex);
 	release_dongles_locked(coder);
-	if (!sim->stop)
+	if (!check_burnout_locked(sim))
 	{
-		coder->compiles++;
+		if (coder->compiles < sim->cfg.required)
+			coder->compiles++;
 		if (all_completed(sim))
 			sim->stop = 1;
 		else
@@ -72,7 +73,7 @@ static int	compile_phase(t_coder *coder)
 
 void	*coder_thread(void *arg)
 {
-	t_coder	*coder;
+	t_coder		*coder;
 	t_sim		*sim;
 
 	coder = (t_coder *)arg;

@@ -3,16 +3,16 @@
 /*                                                        :::      ::::::::   */
 /*   acquire.c                                          :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: yourlogin <yourlogin@student.42.fr>        +#+  +:+       +#+        */
+/*   By: zhamza <zhamza@student.42.fr>              +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
-/*   Created: 2026/10/30 00:00:00 by yourlogin         #+#    #+#             */
-/*   Updated: 2026/10/30 00:00:00 by yourlogin        ###   ########.fr       */
+/*   Created: 2026/11/06 02:36:16 by zhamza            #+#    #+#             */
+/*   Updated: 2026/11/06 02:36:35 by zhamza           ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "codexion.h"
 
-static void	queue_request_locked(t_coder *coder)
+void	queue_request_locked(t_coder *coder)
 {
 	t_sim	*sim;
 
@@ -45,14 +45,13 @@ static void	await_pair_locked(t_coder *coder)
 	long long	wait_ms;
 
 	sim = coder->sim;
-	queue_request_locked(coder);
+	if (sim->cfg.policy == FIFO && sim->cfg.count % 2 == 0
+		&& coder->compiles == 0)
+		queue_first_fifo_locked(coder);
+	else if (sim->cfg.policy != EDF || coder->compiles > 0)
+		queue_request_locked(coder);
 	while (!sim->stop)
 	{
-		if (sim->cfg.policy == EDF && edf_slot(coder) > now_ms())
-		{
-			wait_delta_locked(sim, edf_slot(coder) - now_ms());
-			continue ;
-		}
 		if (try_grant_locked(coder))
 			break ;
 		wait_ms = next_cooldown_locked(coder);
@@ -70,12 +69,11 @@ int	request_dongles(t_coder *coder)
 
 	sim = coder->sim;
 	pthread_mutex_lock(&sim->mutex);
-	if (!sim->stop && coder->compiles < sim->cfg.required
-		&& sim->cfg.count == 1)
+	if (!sim->stop && sim->cfg.count == 1)
 		single_coder_locked(coder);
-	else if (!sim->stop && coder->compiles < sim->cfg.required)
+	else if (!sim->stop)
 		await_pair_locked(coder);
-	active = !sim->stop && coder->compiles < sim->cfg.required;
+	active = !sim->stop;
 	pthread_mutex_unlock(&sim->mutex);
 	return (active);
 }
